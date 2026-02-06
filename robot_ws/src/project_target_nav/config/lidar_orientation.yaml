@@ -1,0 +1,3 @@
+target_nav_node:
+  ros__parameters:
+    front_angle_center_deg: 180.0

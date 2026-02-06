@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>BOT Control Panel</title>
+
+    <!-- ROSLIB -->
+    <script src="https://cdn.jsdelivr.net/npm/roslib/build/roslib.min.js"></script>
+
+    <!-- LOCAL LIBRARIES -->
+    <script src="libs/eventemitter2.min.js"></script>
+    <script src="libs/easeljs.min.js"></script>
+
+    <!-- ROS2D (local) -->
+    <script src="libs/ros2d.js"></script>
+
+    <style>
+        body {
+            background: #1e1e1e;
+            color: white;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            text-align: center;
+        }
+
+        h1 {
+            padding: 15px;
+            margin: 0;
+            background: #111;
+        }
+
+        #ros_status {
+            background: #333;
+            padding: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            color: red;
+            border-bottom: 2px solid #000;
+        }
+
+        .page {
+            display: none;
+            padding: 15px;
+        }
+
+        .menu-btn, .mode-btn {
+            padding: 12px 20px;
+            margin: 10px;
+            font-size: 20px;
+            background: #007bff;
+            border-radius: 8px;
+            border: none;
+            color: white;
+            cursor: pointer;
+        }
+
+        .menu-btn:hover, .mode-btn:hover {
+            background: #3399ff;
+        }
+
+        .stop-btn { background: red; }
+
+        .panel {
+            margin: 10px auto;
+            width: 90%;
+            background: #282828;
+            padding: 10px;
+            border-radius: 12px;
+        }
+
+        img, canvas {
+            width: 100%;
+            border-radius: 10px;
+        }
+
+        /* ===== Movement D-pad (click to send) ===== */
+        .move-grid {
+            width: 240px;
+            margin: auto;
+            display: grid;
+            grid-template-columns: 70px 70px 70px;
+            grid-template-rows: 70px 70px 70px;
+            grid-template-areas:
+                ".     up     ."
+                "left  center right"
+                ".     down   .";
+            gap: 12px;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .move-grid .up { grid-area: up; }
+        .move-grid .down { grid-area: down; }
+        .move-grid .left { grid-area: left; }
+        .move-grid .right { grid-area: right; }
+        .move-grid .center { grid-area: center; }
+
+        .move-btn {
+            height: 60px;
+            background: #444;
+            border-radius: 10px;
+            color: white;
+            border: none;
+            font-size: 22px;
+        }
+
+        .move-btn.stop-center {
+            background: red;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .back-btn {
+            padding: 8px 16px;
+            margin-top: 15px;
+            background: #555;
+            border: none;
+            border-radius: 8px;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+<h1>BOT CONTROL PANEL</h1>
+
+<div id="ros_status">DISCONNECTED</div>
+
+<!-- ===================== HOME ======================= -->
+<div id="page_home" class="page" style="display:block;">
+    <h2>Welcome to BOT</h2>
+
+    <div class="panel">
+    </div>
+
+    <h3>Select Mode</h3>
+    <button class="menu-btn" onclick="enterManual()">Manual Control</button>
+    <button class="menu-btn" onclick="enterFollow()">Follow Mode</button>
+    <button class="menu-btn" onclick="enterExplore()">Explore & Navigation</button>
+
+    <br><br>
+
+    <button class="stop-btn menu-btn" onclick="sendReset()">RESET SYSTEM</button>
+</div>
+
+<!-- ===================== MANUAL ======================= -->
+<div id="page_manual" class="page">
+    <h2>Manual Control</h2>
+
+    <div class="panel">
+        <h3>Camera</h3>
+
+        <!-- NEW: Loading text -->
+        <div id="manual_cam_loading" style="color:yellow;">Đang tải camera...</div>
+
+        <img id="manual_cam" src="" style="display:none;">
+    </div>
+
+    <div class="panel">
+        <h3>Movement</h3>
+
+        <!-- D-pad layout + click-to-send + STOP in center -->
+        <div class="move-grid">
+            <button class="move-btn up" id="btn-up" onclick="sendCmd('MOVE_FWD')">↑</button>
+            <button class="move-btn left" id="btn-left" onclick="sendCmd('TURN_LEFT')">←</button>
+
+            <button class="move-btn stop-center center" id="btn-stop-center" onclick="sendCmd('STOP')">STOP</button>
+
+            <button class="move-btn right" id="btn-right" onclick="sendCmd('TURN_RIGHT')">→</button>
+            <button class="move-btn down" id="btn-down" onclick="sendCmd('MOVE_BACK')">↓</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Arm & Gripper</h3>
+        <button class="menu-btn" onclick="sendCmd('ARM_R_UP')">Arm R Up</button>
+        <button class="menu-btn" onclick="sendCmd('ARM_R_DOWN')">Arm R Down</button><br>
+        <button class="menu-btn" onclick="sendCmd('ARM_L_UP')">Arm L Up</button>
+        <button class="menu-btn" onclick="sendCmd('ARM_L_DOWN')">Arm L Down</button><br><br>
+        <button class="menu-btn" onclick="sendCmd('GRIP_OPEN')">Open</button>
+        <button class="menu-btn" onclick="sendCmd('GRIP_CLOSE')">Close</button>
+    </div>
+
+    <button class="stop-btn menu-btn" onclick="sendStop()">STOP</button><br>
+    <button class="back-btn" onclick="safeBack()">Back</button>
+</div>
+
+<!-- ===================== FOLLOW ======================= -->
+<div id="page_follow" class="page">
+    <h2>Follow Mode</h2>
+
+    <div class="panel">
+        <h3>Status</h3>
+        <p>Người: <span id="follow_detect_status" style="color:orange;">Không phát hiện</span></p>
+        <p>Khoảng cách: <span id="follow_near_status" style="color:yellow;">Đang tiến đến...</span></p>
+    </div>
+
+    <button class="menu-btn" onclick="startFollow()">START FOLLOW</button>
+    <button class="stop-btn menu-btn" onclick="stopFollow()">STOP</button><br>
+
+    <button class="back-btn" onclick="safeBack()">Back</button>
+</div>
+
+<!-- ===================== EXPLORE ======================= -->
+<div id="page_explore" class="page">
+    <h2>Explore & Navigation</h2>
+
+    <div class="panel">
+        <h3>Map Viewer</h3>
+        <div style="position:relative; width:100%;">
+            <canvas id="map_bg" width="400" height="300"
+                style="background:#111; border-radius:10px;"></canvas>
+
+            <canvas id="map_overlay" width="400" height="300"
+                style="position:absolute; left:0; top:0;"></canvas>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:14px;">
+            <label style="cursor:pointer;"><input type="checkbox" id="chk_scan" checked> Laser</label>
+            <label style="cursor:pointer;"><input type="checkbox" id="chk_plan" checked> Plan</label>
+            <label style="cursor:pointer;"><input type="checkbox" id="chk_goal" checked> Goal</label>
+            <label style="cursor:pointer;"><input type="checkbox" id="chk_robot" checked> Robot</label>
+            <!-- Freeze/Live removed: always live map -->
+        </div>
+        <p id="map_hint">Nhấn "Vẽ Map" để bắt đầu.</p>
+    </div>
+
+    <div class="panel">
+        <h3>Navigation Control</h3>
+        <button class="menu-btn" onclick="startExplore()">Vẽ Map</button>
+        <button class="menu-btn" onclick="saveMap()">Lưu Map</button>
+        <button class="menu-btn" onclick="enablePickGoal()">Chọn điểm B</button>
+        <button class="menu-btn" onclick="confirmGoal()">Bắt đầu đi tới B</button>
+        <br><br>
+
+        <span id="explore_status" style="color:orange;">Chưa bắt đầu.</span><br>
+        <span id="goal_status" style="color:yellow;"></span>
+    </div>
+
+    <button class="stop-btn menu-btn" onclick="sendStop()">STOP</button><br>
+    <button class="back-btn" onclick="safeBack()">Back</button>
+</div>
+
+<script>
+/* ==========================================================
+   PAGE SWITCH
+========================================================== */
+function showPage(id) {
+    document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+    document.getElementById(id).style.display = 'block';
+}
+
+
+/* ==========================================================
+   UI NOTIFY (Toast)
+========================================================== */
+let toastTimer = null;
+function notify(message, ms=2200) {
+    const t = document.getElementById('toast');
+    if (!t) return;
+    t.textContent = message;
+    t.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+        t.style.display = 'none';
+    }, ms);
+}
+
+/* ==========================================================
+   ROS BRIDGE
+========================================================== */
+const robotHost = window.location.hostname;
+const rosbridgeUrl = "ws://192.168.11.193:9090";
+
+const ros = new ROSLIB.Ros({ url: rosbridgeUrl });
+
+ros.on('connection', () => {
+    document.getElementById('ros_status').textContent = "CONNECTED";
+    document.getElementById('ros_status').style.color = "lightgreen";
+    initAfterRosConnected();
+});
+
+ros.on('close', () => {
+    document.getElementById('ros_status').textContent = "DISCONNECTED";
+    document.getElementById('ros_status').style.color = "red";
+});
+
+/* ==========================================================
+   CAMERA INIT
+========================================================== */
+function initCameras() {
+    const host = robotHost;
+
+    document.getElementById('manual_cam').src  =
+        "http://192.168.11.193/?action=stream";
+
+}
+
+/* ==========================================================
+   CAMERA AUTO-CHECK LOADING
+========================================================== */
+function waitForCamera(imgId, loadingId) {
+    const img = document.getElementById(imgId);
+    const loading = document.getElementById(loadingId);
+    // ✅ FIX QUAN TRỌNG
+    if (!img || !loading) {
+        console.warn("waitForCamera skipped:", imgId);
+        return;
+    }
+    let checker = setInterval(() => {
+        if (img.complete && img.naturalHeight > 10) {
+            loading.style.display = "none";
+            img.style.display = "block";
+            clearInterval(checker);
+        }
+    }, 300);
+}
+
+/* ==========================================================
+   TOPICS
+========================================================== */
+let cmdTopic, modeTopic;
+let exploreCmdTopic, gotoCmdTopic, goalPoseTopic;
+let uiStatusTopic;
+let targetDetectedSub, nearTargetSub;
+/* ==========================================================
+   FOLLOW UI STATE (ADD)
+========================================================== */
+let followState = {
+    active: false,
+    detected: false,
+    near: false
+};
+
+function initTopics() {
+    cmdTopic = new ROSLIB.Topic({ ros: ros, name: '/manual_cmd', messageType: 'std_msgs/msg/String' });
+    modeTopic = new ROSLIB.Topic({ ros: ros, name: '/robot_mode', messageType: 'std_msgs/msg/String' });
+    exploreCmdTopic = new ROSLIB.Topic({ ros: ros, name: '/explore_cmd', messageType: 'std_msgs/msg/String' });
+    gotoCmdTopic    = new ROSLIB.Topic({ ros: ros, name: '/goto_goal', messageType: 'std_msgs/msg/String' });
+    goalPoseTopic   = new ROSLIB.Topic({ ros: ros, name: '/goal_pose', messageType: 'geometry_msgs/msg/PoseStamped' });
+
+
+uiStatusTopic   = new ROSLIB.Topic({ ros: ros, name: '/ui_status', messageType: 'std_msgs/msg/String' });
+uiStatusTopic.subscribe(msg => {
+    const s = (msg && msg.data) ? msg.data : "";
+    if (!s) return;
+    notify(s);
+    const es = document.getElementById('explore_status');
+    if (es) es.textContent = s;
+});
+
+
+
+    targetDetectedSub = new ROSLIB.Topic({ ros: ros, name: '/target_detected', messageType: 'std_msgs/msg/Bool' });
+    nearTargetSub    = new ROSLIB.Topic({ ros: ros, name: '/near_target', messageType: 'std_msgs/msg/Bool' });
+
+    targetDetectedSub.subscribe(msg => {
+    followState.detected = msg.data;
+    renderFollowUI();
+    });
+
+    nearTargetSub.subscribe(msg => {
+    followState.near = msg.data;
+    renderFollowUI();
+    });
+
+    console.log("Topics READY: /manual_cmd /robot_mode /wifi_config");
+}
+/* ==========================================================
+   FOLLOW UI RENDER (ADD)
+========================================================== */
+function renderFollowUI() {
+    const detectEl = document.getElementById('follow_detect_status');
+    const nearEl   = document.getElementById('follow_near_status');
+    if (!detectEl || !nearEl) return;
+
+    if (!followState.active) {
+        detectEl.textContent = "Chưa chạy";
+        detectEl.style.color = "gray";
+        nearEl.textContent = "-";
+        nearEl.style.color = "gray";
+        return;
+    }
+
+    detectEl.textContent = followState.detected ? "ĐÃ PHÁT HIỆN" : "Không phát hiện";
+    detectEl.style.color = followState.detected ? "lightgreen" : "orange";
+
+    nearEl.textContent = followState.near ? "GẦN MỤC TIÊU" : "Đang tiến đến...";
+    nearEl.style.color = followState.near ? "lightgreen" : "yellow";
+}
+/* ==========================================================
+   MANUAL COMMAND PUBLISH
+========================================================== */
+function sendCmd(cmd) {
+    if (!cmdTopic) {
+        console.error("cmdTopic NOT ready - cannot publish:", cmd);
+        alert("ROS chưa sẵn sàng, thử lại sau 1-2 giây");
+        return;
+    }
+    console.log("SEND CMD:", cmd);
+    cmdTopic.publish(new ROSLIB.Message({ data: cmd }));
+}
+
+/* ==========================================================
+   MODE SWITCH
+========================================================== */
+function enterManual() {
+    if (!modeTopic) {
+        alert("ROS chưa kết nối xong");
+        return;
+    }
+
+    modeTopic.publish(new ROSLIB.Message({ data: 'MANUAL' }));
+    showPage('page_manual');
+
+    const cam = document.getElementById('manual_cam');
+    cam.style.display = "none";
+    document.getElementById('manual_cam_loading').style.display = "block";
+
+    // 🔥 ép reload stream
+    cam.src = "http://192.168.11.193:8080/?action=stream&t=" + Date.now();
+
+    waitForCamera("manual_cam", "manual_cam_loading");
+}
+
+function enterExplore() {
+    if (!modeTopic) {
+        alert("ROS chưa kết nối xong");
+        return;
+    }
+    modeTopic.publish(new ROSLIB.Message({ data: 'AUTO_EXPLORE' }));
+    showPage('page_explore');
+    lockBack();
+
+    document.getElementById('explore_status').textContent = "Chưa bắt đầu.";
+    document.getElementById('goal_status').textContent = "";
+    document.getElementById('map_hint').textContent = "Nhấn \"Vẽ Map\" để bắt đầu.";
+    pickingGoal = false;
+    pickedGoalPose = null;
+    pickedGoalPoint = null;
+    scheduleOverlayRedraw();
+    console.log("Entered AUTO_EXPLORE mode");
+}
+/* ==========================================================
+   FOLLOW MODE
+========================================================== */
+function enterFollow() {
+    lockBack();
+    showPage('page_follow');
+    renderFollowUI();
+}
+
+function startFollow() {
+    if (!modeTopic) { alert("ROS chưa kết nối xong"); return; }
+
+    followState.active = true;
+    renderFollowUI();
+
+    // ✅ nhả stop explore/goto trước (phòng nó đang giữ motor)
+    if (exploreCmdTopic) exploreCmdTopic.publish(new ROSLIB.Message({ data: "STOP" }));
+    if (gotoCmdTopic)    gotoCmdTopic.publish(new ROSLIB.Message({ data: "STOP" }));
+
+    // ✅ chờ 100ms rồi mới start follow
+    setTimeout(() => {
+        modeTopic.publish(new ROSLIB.Message({ data: "FOLLOW_START" }));
+    }, 100);
+}
+
+function stopFollow() {
+    if (!modeTopic) { alert("ROS chưa kết nối xong"); return; }
+    followState.active = false;
+    renderFollowUI();
+    modeTopic.publish(new ROSLIB.Message({ data: 'FOLLOW_STOP' }));
+    mustStopBeforeBack = false;
+}
+
+/* ==========================================================
+   STOP/BACK
+========================================================== */
+let mustStopBeforeBack = false;
+
+function sendStop() {
+    mustStopBeforeBack = false;
+
+    if (exploreCmdTopic)
+        exploreCmdTopic.publish(new ROSLIB.Message({ data: 'STOP' }));
+
+    if (gotoCmdTopic)
+        gotoCmdTopic.publish(new ROSLIB.Message({ data: 'STOP' }));
+        
+    if (modeTopic) modeTopic.publish(new ROSLIB.Message({ data: "STOP_ALL" }));    
+
+    document.getElementById('explore_status').textContent = "Đã dừng.";
+}
+
+function safeBack() {
+    if (mustStopBeforeBack) { alert("Bạn phải nhấn STOP trước khi thoát chế độ!"); return; }
+    showPage('page_home');
+}
+
+function lockBack() { mustStopBeforeBack = true; }
+
+/* ==========================================================
+   RESET
+========================================================== */
+function sendReset() {
+    if (!modeTopic) { alert("ROS chưa kết nối xong"); return; }
+    modeTopic.publish(new ROSLIB.Message({ data: 'STOP_ALL' }));
+    alert("RESET SYSTEM sent.");
+}
+
+/* ==========================================================
+   MAP VIEWER
+========================================================== */
+/* ==========================================================
+   MAP VIEWER (REALTIME /map like RViz2)
+   + LaserScan overlay
+   + Path overlay (/plan)
+   + Goal arrow orientation (click + drag like RViz2)
+   + Live view only (freeze removed)
+========================================================== */
+let mapBg, mapBgCtx;
+let mapOverlay, mapOvCtx;
+
+// Latest map metadata
+let haveMap = false;
+let mapMeta = null; // msg.info
+let mapDraw = { scale: 1, offsetX: 0, offsetY: 0, drawW: 0, drawH: 0 };
+
+// Offscreen buffer (1 pixel per cell)
+let offCanvas = null;
+let offCtx = null;
+let offImgData = null;
+let offW = 0, offH = 0;
+
+// Overlay toggles
+let overlayFlags = {
+    scan: true,
+    plan: true,
+    goal: true,
+    robot: true
+};
+
+// Always live map (freeze removed)
+
+// Goal picking (RViz-like: click + drag to set yaw)
+let pickingGoal = false;
+let goalDrag = { active: false, startCx: 0, startCy: 0 };
+let pickedGoalPose = null;   // geometry_msgs/PoseStamped-like object
+let pickedGoalPoint = null;  // {x,y} in map (meters)
+
+// Latest goal pose seen on /goal_pose (to draw even after reload)
+let latestGoalPose = null;
+
+// TF cache (2D planar)
+let tfMapOdom = null;    // {x,y,yaw}
+let tfOdomBase = null;   // {x,y,yaw}
+let tfBaseChildren = {}; // child -> {x,y,yaw}
+
+// Latest scan + plan
+let latestScan = null; // sensor_msgs/LaserScan
+let latestPlan = null; // nav_msgs/Path
+
+// Redraw throttle (avoid drawing too fast)
+let overlayScheduled = false;
+function scheduleOverlayRedraw() {
+    if (overlayScheduled) return;
+    overlayScheduled = true;
+    requestAnimationFrame(() => {
+        overlayScheduled = false;
+        redrawOverlay();
+    });
+}
+
+function normalizeFrameId(frame) {
+    if (!frame) return "";
+    return ("" + frame).replace(/^\//, "");
+}
+
+function quatToYaw(q) {
+    // yaw from quaternion (Z axis)
+    return Math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    );
+}
+
+function yawToQuat(yaw) {
+    const h = yaw * 0.5;
+    return { x: 0, y: 0, z: Math.sin(h), w: Math.cos(h) };
+}
+
+function tfFromTransform(tr) {
+    const yaw = quatToYaw(tr.rotation);
+    return {
+        x: tr.translation.x,
+        y: tr.translation.y,
+        yaw: yaw
+    };
+}
+
+function compose2D(a, b) {
+    // a: parent->mid, b: mid->child  => parent->child
+    const ca = Math.cos(a.yaw), sa = Math.sin(a.yaw);
+    const x = a.x + ca * b.x - sa * b.y;
+    const y = a.y + sa * b.x + ca * b.y;
+    let yaw = a.yaw + b.yaw;
+    yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+    return { x, y, yaw };
+}
+
+function apply2D(tf, pt) {
+    // pt in child frame -> parent frame using parent->child tf
+    const c = Math.cos(tf.yaw), s = Math.sin(tf.yaw);
+    return {
+        x: tf.x + c * pt.x - s * pt.y,
+        y: tf.y + s * pt.x + c * pt.y
+    };
+}
+
+function getPoseMapOdom() {
+    return tfMapOdom;
+}
+
+function getPoseMapBase() {
+    if (!tfMapOdom || !tfOdomBase) return null;
+    return compose2D(tfMapOdom, tfOdomBase);
+}
+
+function getPoseMapFrame(frameIdRaw) {
+    const frame = normalizeFrameId(frameIdRaw);
+    if (!frame) return null;
+
+    if (frame === "map") return { x: 0, y: 0, yaw: 0 };
+    if (frame === "odom") return getPoseMapOdom();
+    if (frame === "base_link") return getPoseMapBase();
+
+    // child of base_link (laser, base_scan, ...)
+    const base = getPoseMapBase();
+    if (base && tfBaseChildren[frame]) {
+        return compose2D(base, tfBaseChildren[frame]);
+    }
+
+    return null;
+}
+
+function mapMetersToCanvas(mx, my) {
+    if (!mapMeta) return null;
+
+    const res = mapMeta.resolution;
+    const origin = mapMeta.origin.position;
+    const w = mapMeta.width;
+    const h = mapMeta.height;
+
+    const px = (mx - origin.x) / res;   // 0..w (cells)
+    const py = (my - origin.y) / res;   // 0..h (cells)
+
+    const imgX = px;
+    const imgY = (h - 1) - py;          // flip Y for canvas
+
+    const x = mapDraw.offsetX + imgX * mapDraw.scale;
+    const y = mapDraw.offsetY + imgY * mapDraw.scale;
+
+    return { x, y };
+}
+
+function canvasToMapMeters(cx, cy) {
+    if (!mapMeta) return null;
+
+    // must be inside drawn map region
+    if (cx < mapDraw.offsetX || cx > mapDraw.offsetX + mapDraw.drawW) return null;
+    if (cy < mapDraw.offsetY || cy > mapDraw.offsetY + mapDraw.drawH) return null;
+
+    const res = mapMeta.resolution;
+    const origin = mapMeta.origin.position;
+    const h = mapMeta.height;
+
+    const imgX = (cx - mapDraw.offsetX) / mapDraw.scale;
+    const imgY = (cy - mapDraw.offsetY) / mapDraw.scale;
+
+    const py = (h - 1) - imgY;  // unflip
+    const mx = origin.x + imgX * res;
+    const my = origin.y + py * res;
+
+    return { x: mx, y: my };
+}
+
+function base64ToUint8Array(b64) {
+    const binary = atob(b64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+}
+
+function decodeOccupancyData(data) {
+    // ROSBridge may send: Array<number> OR base64 string (bytes)
+    if (typeof data === "string") {
+        const bytes = base64ToUint8Array(data);
+        // Convert to signed int8 values
+        const out = new Int8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) {
+            const b = bytes[i];
+            out[i] = (b > 127) ? (b - 256) : b;
+        }
+        return out;
+    }
+    if (data instanceof Int8Array) return data;
+    if (data instanceof Uint8Array) return new Int8Array(data.buffer);
+    if (Array.isArray(data)) return data;
+
+    console.warn("Unknown /map data type:", typeof data, data);
+    return null;
+}
+
+function drawOccupancyGrid(msg) {
+    if (!mapBgCtx) return;
+
+    const info = msg.info;
+    const w = info.width;
+    const h = info.height;
+
+    const data = decodeOccupancyData(msg.data);
+    if (!data) return;
+
+    // Prepare offscreen canvas once per size
+    if (!offCanvas || offW !== w || offH !== h) {
+        offCanvas = document.createElement("canvas");
+        offCanvas.width = w;
+        offCanvas.height = h;
+        offCtx = offCanvas.getContext("2d");
+        offCtx.imageSmoothingEnabled = false;
+        offImgData = offCtx.createImageData(w, h);
+        offW = w;
+        offH = h;
+    }
+
+    // Fill pixels
+    const pixels = offImgData.data;
+    for (let y = 0; y < h; y++) {
+        const yFlip = h - 1 - y;  // flip so map Y+ is up
+        for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            const v = Array.isArray(data) ? data[i] : data[i];
+
+            let c;
+            if (v === -1) {
+                c = 205; // unknown
+            } else {
+                const occ = Math.max(0, Math.min(100, v));
+                c = 255 - Math.round(occ * 255 / 100); // free=white, occ=black
+            }
+
+            const p = (yFlip * w + x) * 4;
+            pixels[p + 0] = c;
+            pixels[p + 1] = c;
+            pixels[p + 2] = c;
+            pixels[p + 3] = 255;
+        }
+    }
+
+    offCtx.putImageData(offImgData, 0, 0);
+
+    // Draw to main canvas with aspect preserved
+    const cw = mapBg.width;
+    const ch = mapBg.height;
+
+    const scale = Math.min(cw / w, ch / h);
+    const drawW = w * scale;
+    const drawH = h * scale;
+    const offsetX = (cw - drawW) / 2;
+    const offsetY = (ch - drawH) / 2;
+
+    mapDraw = { scale, offsetX, offsetY, drawW, drawH };
+
+    mapBgCtx.clearRect(0, 0, cw, ch);
+    mapBgCtx.imageSmoothingEnabled = false;
+    mapBgCtx.drawImage(offCanvas, offsetX, offsetY, drawW, drawH);
+}
+
+function decodeMono8ImageData(data) {
+    // sensor_msgs/Image mono8: data is uint8[] (often base64 via rosbridge)
+    if (typeof data === "string") return base64ToUint8Array(data);
+    if (data instanceof Uint8Array) return data;
+    if (Array.isArray(data)) return new Uint8Array(data);
+    return null;
+}
+
+function drawFrozenMono8Image(imgMsg) {
+    if (!mapBgCtx) return;
+
+    const w = imgMsg.width;
+    const h = imgMsg.height;
+    const bytes = decodeMono8ImageData(imgMsg.data);
+    if (!bytes) return;
+
+    // Prepare offscreen canvas once per size
+    if (!offCanvas || offW !== w || offH !== h) {
+        offCanvas = document.createElement("canvas");
+        offCanvas.width = w;
+        offCanvas.height = h;
+        offCtx = offCanvas.getContext("2d");
+        offCtx.imageSmoothingEnabled = false;
+        offImgData = offCtx.createImageData(w, h);
+        offW = w;
+        offH = h;
+    }
+
+    const pixels = offImgData.data;
+    for (let y = 0; y < h; y++) {
+        const yFlip = h - 1 - y;
+        for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            const v = bytes[i]; // 0..255
+            const p = (yFlip * w + x) * 4;
+            pixels[p + 0] = v;
+            pixels[p + 1] = v;
+            pixels[p + 2] = v;
+            pixels[p + 3] = 255;
+        }
+    }
+
+    offCtx.putImageData(offImgData, 0, 0);
+
+    const cw = mapBg.width;
+    const ch = mapBg.height;
+
+    const scale = Math.min(cw / w, ch / h);
+    const drawW = w * scale;
+    const drawH = h * scale;
+    const offsetX = (cw - drawW) / 2;
+    const offsetY = (ch - drawH) / 2;
+
+    mapDraw = { scale, offsetX, offsetY, drawW, drawH };
+
+    mapBgCtx.clearRect(0, 0, cw, ch);
+    mapBgCtx.imageSmoothingEnabled = false;
+    mapBgCtx.drawImage(offCanvas, offsetX, offsetY, drawW, drawH);
+}
+
+function drawArrowAtCanvas(x, y, yaw, lengthPx, strokeStyle) {
+    mapOvCtx.save();
+    mapOvCtx.translate(x, y);
+    mapOvCtx.rotate(-yaw); // canvas Y down
+
+    mapOvCtx.strokeStyle = strokeStyle;
+    mapOvCtx.lineWidth = 2;
+
+    // shaft
+    mapOvCtx.beginPath();
+    mapOvCtx.moveTo(0, 0);
+    mapOvCtx.lineTo(lengthPx, 0);
+    mapOvCtx.stroke();
+
+    // arrow head
+    mapOvCtx.beginPath();
+    mapOvCtx.moveTo(lengthPx, 0);
+    mapOvCtx.lineTo(lengthPx - 6, 3);
+    mapOvCtx.lineTo(lengthPx - 6, -3);
+    mapOvCtx.closePath();
+    mapOvCtx.stroke();
+
+    mapOvCtx.restore();
+}
+
+function redrawOverlay() {
+    if (!mapOvCtx) return;
+    mapOvCtx.clearRect(0, 0, mapOverlay.width, mapOverlay.height);
+
+    const showScan  = overlayFlags.scan;
+    const showPlan  = overlayFlags.plan;
+    const showGoal  = overlayFlags.goal;
+    const showRobot = overlayFlags.robot;
+
+    // ============ PLAN ============
+    if (showPlan) {
+        let drew = false;
+
+        if (latestPlan && latestPlan.poses && latestPlan.poses.length >= 2 && mapMeta) {
+            const frame = normalizeFrameId(latestPlan.header?.frame_id || "map");
+            const tfMapFrame = getPoseMapFrame(frame);
+
+            if (frame === "map" || tfMapFrame) {
+                mapOvCtx.strokeStyle = "orange";
+                mapOvCtx.lineWidth = 2;
+                mapOvCtx.beginPath();
+
+                for (let i = 0; i < latestPlan.poses.length; i++) {
+                    const ps = latestPlan.poses[i];
+                    let x = ps.pose.position.x;
+                    let y = ps.pose.position.y;
+
+                    if (frame !== "map" && tfMapFrame) {
+                        const mp = apply2D(tfMapFrame, { x, y });
+                        x = mp.x; y = mp.y;
+                    }
+
+                    const p = mapMetersToCanvas(x, y);
+                    if (!p) continue;
+                    if (i === 0) mapOvCtx.moveTo(p.x, p.y);
+                    else mapOvCtx.lineTo(p.x, p.y);
+                }
+
+                mapOvCtx.stroke();
+                drew = true;
+            }
+        }
+
+        // Fallback: if no /plan, draw a simple straight "intention" line
+        if (!drew && mapMeta) {
+            const base = getPoseMapBase();
+            const goal = (pickedGoalPose || latestGoalPose);
+            if (base && goal) {
+                const gp = goal.pose.position;
+                const a = mapMetersToCanvas(base.x, base.y);
+                const b = mapMetersToCanvas(gp.x, gp.y);
+                if (a && b) {
+                    mapOvCtx.strokeStyle = "rgba(255,165,0,0.6)";
+                    mapOvCtx.lineWidth = 2;
+                    mapOvCtx.setLineDash([6, 6]);
+                    mapOvCtx.beginPath();
+                    mapOvCtx.moveTo(a.x, a.y);
+                    mapOvCtx.lineTo(b.x, b.y);
+                    mapOvCtx.stroke();
+                    mapOvCtx.setLineDash([]);
+                }
+            }
+        }
+    }
+
+    // ============ LASER SCAN ============
+    if (showScan && latestScan && mapMeta) {
+        const scanFrame = normalizeFrameId(latestScan.header?.frame_id || "");
+        const tfMapScan = getPoseMapFrame(scanFrame);
+
+        if (tfMapScan) {
+            const ranges = latestScan.ranges || [];
+            const n = ranges.length;
+            if (n > 0) {
+                const desired = 360;
+                const step = Math.max(1, Math.floor(n / desired));
+
+                mapOvCtx.fillStyle = "lime";
+
+                for (let i = 0; i < n; i += step) {
+                    const r = ranges[i];
+                    if (!Number.isFinite(r)) continue;
+                    if (r <= latestScan.range_min) continue;
+                    if (r >= latestScan.range_max) continue;
+
+                    const ang = latestScan.angle_min + i * latestScan.angle_increment;
+                    const ptScan = { x: r * Math.cos(ang), y: r * Math.sin(ang) };
+                    const ptMap = apply2D(tfMapScan, ptScan);
+                    const p = mapMetersToCanvas(ptMap.x, ptMap.y);
+                    if (!p) continue;
+
+                    // tiny point
+                    mapOvCtx.fillRect(p.x, p.y, 2, 2);
+                }
+            }
+        }
+    }
+
+    // ============ GOAL (arrow) ============
+    if (showGoal) {
+        const goal = (pickedGoalPose || latestGoalPose);
+        if (goal && mapMeta) {
+            const gp = goal.pose.position;
+            const p = mapMetersToCanvas(gp.x, gp.y);
+            if (p) {
+                const yaw = quatToYaw(goal.pose.orientation);
+
+                // circle
+                mapOvCtx.beginPath();
+                mapOvCtx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+                mapOvCtx.strokeStyle = "yellow";
+                mapOvCtx.lineWidth = 2;
+                mapOvCtx.stroke();
+
+                // arrow
+                drawArrowAtCanvas(p.x, p.y, yaw, 20, "yellow");
+            }
+        }
+    }
+
+    // ============ ROBOT (pose) ============
+    if (showRobot && mapMeta) {
+        const base = getPoseMapBase();
+        if (base) {
+            const p = mapMetersToCanvas(base.x, base.y);
+            if (p) {
+                // body circle
+                mapOvCtx.beginPath();
+                mapOvCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+                mapOvCtx.strokeStyle = "cyan";
+                mapOvCtx.lineWidth = 2;
+                mapOvCtx.stroke();
+
+                // heading arrow
+                drawArrowAtCanvas(p.x, p.y, base.yaw, 16, "cyan");
+            }
+        }
+    }
+
+    // ============ PICKING UI ============
+    if (pickingGoal && pickedGoalPoint && mapMeta) {
+        const p = mapMetersToCanvas(pickedGoalPoint.x, pickedGoalPoint.y);
+        if (p) {
+            mapOvCtx.beginPath();
+            mapOvCtx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+            mapOvCtx.strokeStyle = "rgba(255,255,0,0.4)";
+            mapOvCtx.lineWidth = 2;
+            mapOvCtx.stroke();
+        }
+    }
+}
+
+function bindOverlayToggles() {
+    const chkScan  = document.getElementById('chk_scan');
+    const chkPlan  = document.getElementById('chk_plan');
+    const chkGoal  = document.getElementById('chk_goal');
+    const chkRobot = document.getElementById('chk_robot');
+
+    if (chkScan)  { chkScan.checked  = overlayFlags.scan;  chkScan.addEventListener('change', () => { overlayFlags.scan  = chkScan.checked;  scheduleOverlayRedraw(); }); }
+    if (chkPlan)  { chkPlan.checked  = overlayFlags.plan;  chkPlan.addEventListener('change', () => { overlayFlags.plan  = chkPlan.checked;  scheduleOverlayRedraw(); }); }
+    if (chkGoal)  { chkGoal.checked  = overlayFlags.goal;  chkGoal.addEventListener('change', () => { overlayFlags.goal  = chkGoal.checked;  scheduleOverlayRedraw(); }); }
+    if (chkRobot) { chkRobot.checked = overlayFlags.robot; chkRobot.addEventListener('change', () => { overlayFlags.robot = chkRobot.checked; scheduleOverlayRedraw(); }); }
+
+    // Freeze/Live removed: always live map
+}
+
+function initMapCanvas() {
+    mapBg = document.getElementById('map_bg');
+    mapOverlay = document.getElementById('map_overlay');
+    if (!mapBg || !mapOverlay) return;
+
+    mapBgCtx = mapBg.getContext('2d');
+    mapBgCtx.imageSmoothingEnabled = false;
+
+    mapOvCtx = mapOverlay.getContext('2d');
+    mapOvCtx.imageSmoothingEnabled = false;
+
+    bindOverlayToggles();
+
+    // Subscribe realtime map
+    const mapSub = new ROSLIB.Topic({
+        ros: ros,
+        name: '/map',
+        messageType: 'nav_msgs/msg/OccupancyGrid',
+        throttle_rate: 200, // ms
+        queue_length: 1
+    });
+
+    mapSub.subscribe(msg => {
+        haveMap = true;
+        mapMeta = msg.info;
+
+        drawOccupancyGrid(msg);
+
+        const hint = document.getElementById('map_hint');
+        if (hint) hint.textContent = "Đang vẽ map realtime...";
+
+        scheduleOverlayRedraw();
+    });
+
+    // Freeze removed: ignore /map_ui/image
+
+    // Subscribe TF for overlays
+    const tfSub = new ROSLIB.Topic({
+        ros: ros,
+        name: '/tf',
+        messageType: 'tf2_msgs/msg/TFMessage',
+        throttle_rate: 50,
+        queue_length: 1
+    });
+
+    const tfStaticSub = new ROSLIB.Topic({
+        ros: ros,
+        name: '/tf_static',
+        messageType: 'tf2_msgs/msg/TFMessage',
+        throttle_rate: 500,
+        queue_length: 1
+    });
+
+    function onTfMsg(msg) {
+        if (!msg || !msg.transforms) return;
+
+        msg.transforms.forEach(t => {
+            const parent = normalizeFrameId(t.header.frame_id);
+            const child  = normalizeFrameId(t.child_frame_id);
+
+            if (parent === "map" && child === "odom") {
+                tfMapOdom = tfFromTransform(t.transform);
+            } else if (parent === "odom" && child === "base_link") {
+                tfOdomBase = tfFromTransform(t.transform);
+            } else if (parent === "base_link") {
+                // store any base_link children (laser, base_scan, ...)
+                tfBaseChildren[child] = tfFromTransform(t.transform);
+            }
+        });
+
+        scheduleOverlayRedraw();
+    }
+
+    tfSub.subscribe(onTfMsg);
+    tfStaticSub.subscribe(onTfMsg);
+
+    // LaserScan overlay
+    const scanSub = new ROSLIB.Topic({
+        ros: ros,
+        name: '/scan',
+        messageType: 'sensor_msgs/msg/LaserScan',
+        throttle_rate: 100,
+        queue_length: 1
+    });
+
+    scanSub.subscribe(msg => {
+        latestScan = msg;
+        scheduleOverlayRedraw();
+    });
+
+    // Planned path overlay
+    const planSub = new ROSLIB.Topic({
+        ros: ros,
+        name: '/plan',
+        messageType: 'nav_msgs/msg/Path',
+        throttle_rate: 200,
+        queue_length: 1
+    });
+
+    planSub.subscribe(msg => {
+        latestPlan = msg;
+        scheduleOverlayRedraw();
+    });
+
+    // Goal pose overlay (subscribe to what robot is using)
+    if (goalPoseTopic) {
+        goalPoseTopic.subscribe(msg => {
+            latestGoalPose = msg;
+            scheduleOverlayRedraw();
+        });
+    }
+
+    // RViz-like goal picking (mouse drag)
+    function getCanvasXYFromEvent(e) {
+        const r = mapOverlay.getBoundingClientRect();
+        const cx = (e.clientX - r.left) * (mapOverlay.width / r.width);
+        const cy = (e.clientY - r.top)  * (mapOverlay.height / r.height);
+        return { cx, cy };
+    }
+
+    mapOverlay.addEventListener('mousedown', function (e) {
+        if (!pickingGoal) return;
+        if (!haveMap || !mapMeta) {
+            alert("Chưa nhận được /map");
+            return;
+        }
+
+        const { cx, cy } = getCanvasXYFromEvent(e);
+        const mp = canvasToMapMeters(cx, cy);
+        if (!mp) return;
+
+        pickedGoalPoint = mp;
+        pickedGoalPose = {
+            header: { frame_id: "map" },
+            pose: {
+                position: { x: mp.x, y: mp.y, z: 0 },
+                orientation: yawToQuat(0)
+            }
+        };
+
+        goalDrag.active = true;
+        goalDrag.startCx = cx;
+        goalDrag.startCy = cy;
+
+        document.getElementById('goal_status').textContent =
+            `Đã chọn điểm B: x=${mp.x.toFixed(2)}, y=${mp.y.toFixed(2)}. Kéo chuột để chọn hướng.`;
+        notify(`Đã chọn điểm B: (${mp.x.toFixed(2)}, ${mp.y.toFixed(2)})`);
+
+        scheduleOverlayRedraw();
+    });
+
+    mapOverlay.addEventListener('mousemove', function (e) {
+        if (!goalDrag.active || !pickedGoalPose) return;
+
+        const { cx, cy } = getCanvasXYFromEvent(e);
+        const dx = cx - goalDrag.startCx;
+        const dy = cy - goalDrag.startCy;
+
+        // If user barely moves mouse, keep yaw = 0
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 < 25) { // 5px threshold
+            pickedGoalPose.pose.orientation = yawToQuat(0);
+            scheduleOverlayRedraw();
+            return;
+        }
+
+        // canvas Y down => map Y up => invert dy
+        const yaw = Math.atan2(-dy, dx);
+        pickedGoalPose.pose.orientation = yawToQuat(yaw);
+
+        scheduleOverlayRedraw();
+    });
+
+    function finishGoalDrag() {
+        if (!goalDrag.active) return;
+        goalDrag.active = false;
+        pickingGoal = false;
+
+        if (pickedGoalPose) {
+            const yaw = quatToYaw(pickedGoalPose.pose.orientation);
+            const yawDeg = yaw * 180.0 / Math.PI;
+            document.getElementById('goal_status').textContent =
+                `Đã chọn B: x=${pickedGoalPose.pose.position.x.toFixed(2)}, y=${pickedGoalPose.pose.position.y.toFixed(2)}, yaw=${yawDeg.toFixed(1)}°`;
+
+            const hint = document.getElementById('map_hint');
+            if (hint) hint.textContent = "Đã chọn goal + hướng. Bấm 'Bắt đầu đi tới B'.";
+        }
+
+        scheduleOverlayRedraw();
+    }
+
+    mapOverlay.addEventListener('mouseup', finishGoalDrag);
+    mapOverlay.addEventListener('mouseleave', finishGoalDrag);
+}
+/* ==========================================================
+   EXPLORE CMDS
+========================================================== */
+function startExplore() {
+    exploreCmdTopic.publish(new ROSLIB.Message({ data: "START" }));
+    document.getElementById('explore_status').textContent = "Đang khám phá...";
+}
+
+function saveMap() {
+    exploreCmdTopic.publish(new ROSLIB.Message({ data: "SAVE" }));
+    document.getElementById('explore_status').textContent = "Đang lưu map...";
+    notify("Đang lưu map... (đợi vài giây)");
+}
+
+function enablePickGoal() {
+    if (!haveMap) {
+        alert("Chưa nhận được /map (hãy bấm 'Vẽ Map' và đợi 1-2 giây)!");
+        return;
+    }
+    pickingGoal = true;
+    notify("Chế độ chọn điểm B: chạm vào map để chọn, kéo để chọn hướng.");
+    document.getElementById('map_hint').textContent =
+        "Click vào map để chọn điểm B (map vẫn cập nhật realtime).";
+}
+function confirmGoal() {
+    if (!pickedGoalPose) return alert("Chưa chọn điểm B!");
+
+    document.getElementById('goal_status').textContent =
+        "Đang chuẩn bị điều hướng...";
+
+    // 1) Gửi START trước để mode_manager launch goto_goal và đưa về NAV_READY
+    gotoCmdTopic.publish(new ROSLIB.Message({ data: "START" }));
+
+    // 2) Đợi node goto_goal lên rồi mới publish goal.
+    // Publish lại vài lần để chắc chắn không rơi message.
+    const publishGoal = () => goalPoseTopic.publish(new ROSLIB.Message(pickedGoalPose));
+
+    setTimeout(publishGoal, 700);
+    setTimeout(publishGoal, 1000);
+    setTimeout(publishGoal, 1300);
+
+    document.getElementById('goal_status').textContent =
+        "🚗 Đã gửi lệnh. Robot sẽ đi tới B...";
+}
+
+/* ==========================================================
+   INIT
+========================================================== */
+function initAfterRosConnected() {
+    initTopics();
+    initCameras();  // ✅ THIẾU
+    waitForCamera("manual_cam", "manual_cam_loading"); // ✅ cho UI khỏi đứng mãi
+    initMapCanvas();
+}
+
+</script>
+
+
+    <div id="toast" style="
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.75);
+        color: white;
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        max-width: 90%;
+        text-align: center;
+        z-index: 9999;
+        display: none;
+    "></div>
+    
+</body>
+</html>
